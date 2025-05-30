@@ -11,15 +11,24 @@ export class MicrosoftGraphService {
 
   constructor(private configService: ConfigService) {
     // Obtener valores de configuración
-    const tenantId = this.configService.get<string>('AZURE_TENANT_ID') || 'default-tenant-id';
-    const clientId = this.configService.get<string>('AZURE_CLIENT_ID') || 'default-client-id';
-    const clientSecret = this.configService.get<string>('AZURE_CLIENT_SECRET') || 'default-client-secret';
-    this.docentesGroupId = this.configService.get<string>('DOCENTES_GROUP_ID') || 'default-group-id';
+    const tenantId =
+      this.configService.get<string>('AZURE_TENANT_ID') || 'default-tenant-id';
+    const clientId =
+      this.configService.get<string>('AZURE_CLIENT_ID') || 'default-client-id';
+    const clientSecret =
+      this.configService.get<string>('AZURE_CLIENT_SECRET') ||
+      'default-client-secret';
+    this.docentesGroupId =
+      this.configService.get<string>('DOCENTES_GROUP_ID') || 'default-group-id';
 
     // Configuración de Microsoft Graph API
-    const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    const credential = new ClientSecretCredential(
+      tenantId,
+      clientId,
+      clientSecret,
+    );
     const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-      scopes: ['https://graph.microsoft.com/.default']
+      scopes: ['https://graph.microsoft.com/.default'],
     });
 
     // Inicializar cliente de Graph
@@ -28,47 +37,42 @@ export class MicrosoftGraphService {
 
   async validateTeacher(email: string) {
     try {
-      console.log(`Validando profesor: ${email}`);
-      
       // Obtener información del usuario por su email
       const userResponse = await this.graphClient
         .api(`/users`)
         .filter(`mail eq '${email}'`)
         .get();
-      
+
       if (!userResponse.value || userResponse.value.length === 0) {
-        console.log(`Usuario no encontrado: ${email}`);
-        return { 
+        return {
+          status: 409,
           success: false,
           isTeacher: false,
-          message: 'Usuario no encontrado en el directorio'
+          message: 'Usuario no encontrado en el directorio',
         };
       }
-      
+
       const user = userResponse.value[0];
-      console.log(`Usuario encontrado: ${user.displayName} (${user.id})`);
-      
+
       // Verificar si el usuario es miembro del grupo Docentes Ameritec
       const membershipResponse = await this.graphClient
         .api(`/groups/${this.docentesGroupId}/members`)
         .filter(`id eq '${user.id}'`)
         .get();
-      
+
       // Si el usuario está en el grupo, es profesor
-      const isTeacher = membershipResponse.value && membershipResponse.value.length > 0;
-      
-      console.log(`¿Es profesor? ${isTeacher ? 'SÍ' : 'NO'}`);
-      
+      const isTeacher =
+        membershipResponse.value && membershipResponse.value.length > 0;
+
       return {
         success: true,
         user: {
           id: user.id,
           displayName: user.displayName,
           email: email,
-          isTeacher: isTeacher
-        }
+          isTeacher: isTeacher,
+        },
       };
-      
     } catch (error) {
       console.error('Error al validar profesor:', error);
       throw error;

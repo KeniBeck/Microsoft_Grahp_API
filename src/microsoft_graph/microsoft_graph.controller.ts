@@ -1,7 +1,14 @@
-import { Controller, Get, Post, Body, Param, Delete, Patch, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  HttpException,
+  HttpStatus,
+  ConflictException,
+} from '@nestjs/common';
 import { MicrosoftGraphService } from './microsoft_graph.service';
-import { CreateMicrosoftGraphDto, ValidateTeacherDto } from './dto/create-microsoft_graph.dto';
-import { UpdateMicrosoftGraphDto } from './dto/update-microsoft_graph.dto';
+import { ValidateTeacherDto } from './dto/create-microsoft_graph.dto';
 
 @Controller('microsoft-graph')
 export class MicrosoftGraphController {
@@ -11,16 +18,25 @@ export class MicrosoftGraphController {
   async validateTeacher(@Body() body: ValidateTeacherDto) {
     try {
       if (!body.email) {
-        throw new HttpException('Se requiere un correo electrónico', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'Se requiere un correo electrónico',
+          HttpStatus.BAD_REQUEST,
+        );
       }
-      
-      return await this.microsoftGraphService.validateTeacher(body.email);
+
+      const response = await this.microsoftGraphService.validateTeacher(
+        body.email,
+      );
+      if (response.status === 409) {
+        throw new ConflictException(response.message);
+      }
+
+      return response;
     } catch (error) {
-      throw new HttpException({
-        success: false, 
-        error: 'Error al validar profesor',
-        message: error.message
-      }, HttpStatus.INTERNAL_SERVER_ERROR);
+      if (!(error instanceof ConflictException)) {
+        console.log('Error al validar el profesor:', error);
+      }
+      throw error;
     }
   }
 
