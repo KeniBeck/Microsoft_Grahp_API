@@ -7,7 +7,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://www.mentora.ameritecgt.com/login', 'https://www.mentora.ameritecgt.com/login'], // Ajusta según tu URL de frontend
+    origin: ['http://localhost:5173', 'http://www.mentora.ameritecgt.com', 'https://www.mentora.ameritecgt.com'], // Ajusta según tu URL de frontend
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
