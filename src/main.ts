@@ -1,13 +1,23 @@
-
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import * as fs from 'fs';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  let httpsOptions: { key: Buffer; cert: Buffer } | null = null;
+
+  // Verificar si existen los certificados
+  if (fs.existsSync('key.pem') && fs.existsSync('cert.pem')) {
+    httpsOptions = {
+      key: fs.readFileSync('key.pem'),
+      cert: fs.readFileSync('cert.pem'),
+    };
+  }
+
+  const app = await NestFactory.create(AppModule, httpsOptions ? { httpsOptions } : {});
 
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://www.mentora.ameritecgt.com', 'https://www.mentora.ameritecgt.com'], // Ajusta según tu URL de frontend
+    origin: ['http://localhost:5173', 'http://www.mentora.ameritecgt.com', 'https://www.mentora.ameritecgt.com'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
@@ -22,5 +32,7 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, documentFactory);
 
   await app.listen(process.env.PORT ?? 3000);
+  
+  console.log(`Server running on ${httpsOptions ? 'https' : 'http'}://localhost:${process.env.PORT ?? 3000}`);
 }
 bootstrap();
