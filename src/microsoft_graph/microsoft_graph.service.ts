@@ -128,10 +128,10 @@ export class MicrosoftGraphService {
       }
     } catch (error) {
       console.error('Error al validar profesor:', error);
-      
-      // Verificar si es un error por usuario no encontrado
-      if (error.toString().includes('user not found') || 
-          error.toString().includes('usuario no encontrado')) {
+
+      // Normalizar y devolver objeto con status válido (no lanzar)
+      const remoteStatus = (error as any)?.statusCode ?? (error as any)?.status;
+      if ((error as any)?.toString && ((error as any).toString().includes('user not found') || (error as any).toString().includes('usuario no encontrado'))) {
         return {
           status: 409,
           success: false,
@@ -139,8 +139,23 @@ export class MicrosoftGraphService {
           message: 'Usuario no encontrado en el directorio',
         };
       }
-      
-      throw error;
+
+      if (typeof remoteStatus === 'number' && remoteStatus >= 100 && remoteStatus < 1000) {
+        return {
+          status: remoteStatus,
+          success: false,
+          isTeacher: false,
+          message: (error as any)?.body || (error as any)?.message || 'Error en Microsoft Graph',
+        };
+      }
+
+      // Errores de red / fetch u otros -> 503 Service Unavailable
+      return {
+        status: 503,
+        success: false,
+        isTeacher: false,
+        message: 'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
+      };
     }
   }
 
@@ -205,7 +220,23 @@ export class MicrosoftGraphService {
       }
     } catch (error) {
       console.error('Error al validar profesor por email:', error);
-      throw error;
+
+      const remoteStatus = (error as any)?.statusCode ?? (error as any)?.status;
+      if (typeof remoteStatus === 'number' && remoteStatus >= 100 && remoteStatus < 1000) {
+        return {
+          status: remoteStatus,
+          success: false,
+          isTeacher: false,
+          message: (error as any)?.body || (error as any)?.message || 'Error en Microsoft Graph',
+        };
+      }
+
+      return {
+        status: 503,
+        success: false,
+        isTeacher: false,
+        message: 'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
+      };
     }
   }
 }
