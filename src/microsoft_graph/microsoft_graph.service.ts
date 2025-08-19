@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClientSecretCredential } from '@azure/identity';
 import { Client } from '@microsoft/microsoft-graph-client';
@@ -75,7 +75,21 @@ export class MicrosoftGraphService {
       };
     } catch (error) {
       console.error('Error al validar profesor:', error);
-      throw error;
+
+      // Si Graph/undici falló por red, devolver 503
+      const remoteStatus = error?.statusCode ?? error?.status;
+      if (typeof remoteStatus === 'number' && remoteStatus >= 100 && remoteStatus < 1000) {
+        // usar el código remoto sólo si es un código HTTP válido
+        const message = error?.body || error?.message || 'Error en Microsoft Graph';
+        throw new HttpException(message, remoteStatus);
+      }
+
+      // errores de fetch / red u otros -> 503 Service Unavailable
+      throw new HttpException(
+        'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    
     }
   }
 }
