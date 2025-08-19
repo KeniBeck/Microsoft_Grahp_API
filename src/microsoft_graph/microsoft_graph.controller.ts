@@ -17,6 +17,10 @@ import { ValidateTeacherDto } from './dto/create-microsoft_graph.dto';
 export class MicrosoftGraphController {
   constructor(private readonly microsoftGraphService: MicrosoftGraphService) { }
 
+  private normalizeStatus(status?: any) {
+    return (typeof status === 'number' && status >= 100 && status < 1000) ? status : null;
+  }
+
   @Post('validate-teacher')
   async validateTeacher(@Body() body: ValidateTeacherDto) {
     try {
@@ -32,12 +36,14 @@ export class MicrosoftGraphController {
         body.password
       );
 
-      if (response.status === 409) {
-        throw new ConflictException(response.message);
-      }
+      const status = this.normalizeStatus(response?.status);
 
-      if (response.status === 401) {
-        throw new UnauthorizedException(response.message);
+      if (status === 409) throw new ConflictException(response.message);
+      if (status === 401) throw new UnauthorizedException(response.message);
+
+      // Si el servicio devolvió fallo pero sin status válido -> mapear a 503
+      if (response && response.success === false && !status) {
+        throw new HttpException(response.message || 'Error en Microsoft Graph', HttpStatus.SERVICE_UNAVAILABLE);
       }
 
       return response;
@@ -61,12 +67,13 @@ export class MicrosoftGraphController {
 
       const response = await this.microsoftGraphService.validateTeacherByEmail(email);
 
-      if (response.status === 404) {
-        throw new NotFoundException(response.message);
-      }
+      const status = this.normalizeStatus(response?.status);
 
-      if (response.status === 401) {
-        throw new UnauthorizedException(response.message);
+      if (status === 404) throw new NotFoundException(response.message);
+      if (status === 401) throw new UnauthorizedException(response.message);
+
+      if (response && response.success === false && !status) {
+        throw new HttpException(response.message || 'Error en Microsoft Graph', HttpStatus.SERVICE_UNAVAILABLE);
       }
 
       return response;
