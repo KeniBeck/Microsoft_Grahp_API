@@ -1,49 +1,137 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientSecretCredential } from '@azure/identity';
+import { ConfidentialClientApplication, AuthenticationResult } from '@azure/msal-node';
 import { Client } from '@microsoft/microsoft-graph-client';
+import { ClientSecretCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 
 @Injectable()
 export class MicrosoftGraphService {
-  private graphClient: Client;
-  private docentesGroupId: string;
-
+  private msalClient: ConfidentialClientApplication;
+    private graphClientApp: Client;
   constructor(private configService: ConfigService) {
-    // Obtener valores de configuración
-    const tenantId =
-      this.configService.get<string>('AZURE_TENANT_ID') || 'default-tenant-id';
-    const clientId =
-      this.configService.get<string>('AZURE_CLIENT_ID') || 'default-client-id';
-    const clientSecret =
-      this.configService.get<string>('AZURE_CLIENT_SECRET') ||
-      'default-client-secret';
-    this.docentesGroupId =
-      this.configService.get<string>('DOCENTES_GROUP_ID') || 'default-group-id';
+    // Configuración para MSAL
+    const tenantId = this.configService.get<string>('AZURE_TENANT_ID') || 'default-tenant-id';
+    const clientId = this.configService.get<string>('AZURE_CLIENT_ID') || 'default-client-id';
+    const clientSecret = this.configService.get<string>('AZURE_CLIENT_SECRET') || 'default-client-secret';
+    
+    // Inicializar MSAL como ConfidentialClientApplication (necesario para ROPC)
+    this.msalClient = new ConfidentialClientApplication({
+      auth: {
+        clientId: clientId,
+        clientSecret: clientSecret,
+        authority: `https://login.microsoftonline.com/${tenantId}`
+      }
+    });
 
-    // Configuración de Microsoft Graph API
+    // Inicializar cliente de Graph para llamadas a nivel de aplicación
     const credential = new ClientSecretCredential(
       tenantId,
       clientId,
-      clientSecret,
+      clientSecret
     );
     const authProvider = new TokenCredentialAuthenticationProvider(credential, {
       scopes: ['https://graph.microsoft.com/.default'],
     });
-
-    // Inicializar cliente de Graph
-    this.graphClient = Client.initWithMiddleware({ authProvider });
+    this.graphClientApp = Client.initWithMiddleware({ authProvider });
   }
 
-  async validateTeacher(email: string) {
+  async validateTeacher(email: string, password: string) {
     try {
-      // Obtener información del usuario por su email
-      const userResponse = await this.graphClient
-        .api(`/users`)
-        .filter(`mail eq '${email}'`)
-        .get();
+      // Intentar autenticar al usuario con sus credenciales
+      let authResult: AuthenticationResult;
+      try {
+        const tokenResponse = await this.msalClient.acquireTokenByUsernamePassword({
+          username: email,
+          password: password,
+          scopes: ['https://graph.microsoft.com/.default']
+        });
+        
+        if (!tokenResponse) {
+          throw new Error('Authentication failed - no token received');
+        }
+        
+        authResult = tokenResponse;
+      } catch (error) {
+        console.log('Error de autenticación:', error);
+        return {
+          status: 401,
+          success: false,
+          isTeacher: false,
+          message: 'Credenciales incorrectas',
+        };
+      }
 
-      if (!userResponse.value || userResponse.value.length === 0) {
+      // Si llegamos aquí, la autenticación fue exitosa
+      try {
+        const graphClient = Client.initWithMiddleware({
+          authProvider: {
+            getAccessToken: async () => {
+              return authResult.accessToken;
+            }
+          }
+        });
+
+        // Obtener información del usuario
+        const user = await graphClient.api('/me').get();
+        
+        // Verificar si el usuario pertenece al grupo de docentes
+        const docentesGroupId = this.configService.get<string>('DOCENTES_GROUP_ID');
+        
+        let isTeacher = false;
+        try {
+          // Verificar membresía en el grupo
+          const memberOf = await graphClient.api(`/users/${user.id}/memberOf`).get();
+          isTeacher = memberOf.value.some(group => group.id === docentesGroupId);
+          
+          console.log(`Usuario ${email} es docente: ${isTeacher}`);
+          
+          // Si NO es docente, devolvemos estado 401 (no autorizado)
+          if (!isTeacher) {
+            return {
+              status: 401,
+              success: false,
+              isTeacher: false,
+              message: 'El usuario no es docente o no tiene permisos suficientes',
+            };
+          }
+        } catch (groupError) {
+          console.error('Error al verificar grupo:', groupError);
+          // Si no podemos verificar el grupo, asumimos que no es docente
+          isTeacher = false;
+          return {
+            status: 401,
+            success: false,
+            isTeacher: false,
+            message: 'No se pudo verificar el estado de docente',
+          };
+        }
+        
+        // Solo llegamos aquí si es docente
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            displayName: user.displayName,
+            email: email,
+            isTeacher: true,
+          },
+        };
+      } catch (error) {
+        console.log('Error al obtener datos del usuario:', error);
+        return {
+          status: 401,
+          success: false,
+          isTeacher: false,
+          message: 'No se pudo verificar el estado de docente',
+        };
+      }
+    } catch (error) {
+      console.error('Error al validar profesor:', error);
+
+      // Normalizar y devolver objeto con status válido (no lanzar)
+      const remoteStatus = (error as any)?.statusCode ?? (error as any)?.status;
+      if ((error as any)?.toString && ((error as any).toString().includes('user not found') || (error as any).toString().includes('usuario no encontrado'))) {
         return {
           status: 409,
           success: false,
@@ -52,44 +140,103 @@ export class MicrosoftGraphService {
         };
       }
 
-      const user = userResponse.value[0];
-
-      // Verificar si el usuario es miembro del grupo Docentes Ameritec
-      const membershipResponse = await this.graphClient
-        .api(`/groups/${this.docentesGroupId}/members`)
-        .filter(`id eq '${user.id}'`)
-        .get();
-
-      // Si el usuario está en el grupo, es profesor
-      const isTeacher =
-        membershipResponse.value && membershipResponse.value.length > 0;
-
-      return {
-        success: true,
-        user: {
-          id: user.id,
-          displayName: user.displayName,
-          email: email,
-          isTeacher: isTeacher,
-        },
-      };
-    } catch (error) {
-      console.error('Error al validar profesor:', error);
-
-      // Si Graph/undici falló por red, devolver 503
-      const remoteStatus = error?.statusCode ?? error?.status;
       if (typeof remoteStatus === 'number' && remoteStatus >= 100 && remoteStatus < 1000) {
-        // usar el código remoto sólo si es un código HTTP válido
-        const message = error?.body || error?.message || 'Error en Microsoft Graph';
-        throw new HttpException(message, remoteStatus);
+        return {
+          status: remoteStatus,
+          success: false,
+          isTeacher: false,
+          message: (error as any)?.body || (error as any)?.message || 'Error en Microsoft Graph',
+        };
       }
 
-      // errores de fetch / red u otros -> 503 Service Unavailable
-      throw new HttpException(
-        'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    
+      // Errores de red / fetch u otros -> 503 Service Unavailable
+      return {
+        status: 503,
+        success: false,
+        isTeacher: false,
+        message: 'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
+      };
+    }
+  }
+
+  async validateTeacherByEmail(email: string) {
+    try {
+      // Buscar el usuario por su correo electrónico usando permisos de aplicación
+      const users = await this.graphClientApp.api('/users')
+        .filter(`mail eq '${email}' or userPrincipalName eq '${email}'`)
+        .select('id,displayName,mail,userPrincipalName')
+        .get();
+
+      if (!users.value || users.value.length === 0) {
+        return {
+          status: 404,
+          success: false,
+          isTeacher: false,
+          message: 'Usuario no encontrado en el directorio',
+        };
+      }
+
+      const user = users.value[0];
+      
+      // Verificar si el usuario pertenece al grupo de docentes
+      const docentesGroupId = this.configService.get<string>('DOCENTES_GROUP_ID');
+      
+      try {
+        // USANDO EL MISMO MÉTODO QUE EN validateTeacher
+        // Verificar membresía en el grupo usando la API de memberOf
+        const memberOf = await this.graphClientApp.api(`/users/${user.id}/memberOf`).get();
+        const isTeacher = memberOf.value.some(group => group.id === docentesGroupId);
+        
+        console.log(`Usuario ${email} es docente: ${isTeacher}`);
+        
+        if (!isTeacher) {
+          return {
+            status: 401,
+            success: false,
+            isTeacher: false,
+            message: 'El usuario no es docente o no tiene permisos suficientes',
+          };
+        }
+        
+        // Si es docente
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            displayName: user.displayName,
+            email: email,
+            isTeacher: true,
+          },
+        };
+        
+      } catch (groupError) {
+        console.error('Error al verificar grupo:', groupError);
+        return {
+          status: 401,
+          success: false,
+          isTeacher: false,
+          message: 'No se pudo verificar el estado de docente',
+        };
+      }
+    } catch (error) {
+      console.error('Error al validar profesor por email:', error);
+
+      const remoteStatus = (error as any)?.statusCode ?? (error as any)?.status;
+      if (typeof remoteStatus === 'number' && remoteStatus >= 100 && remoteStatus < 1000) {
+        return {
+          status: remoteStatus,
+          success: false,
+          isTeacher: false,
+          message: (error as any)?.body || (error as any)?.message || 'Error en Microsoft Graph',
+        };
+      }
+
+      return {
+        status: 503,
+        success: false,
+        isTeacher: false,
+        message: 'No se pudo conectar con Microsoft Graph. Intenta más tarde.',
+      };
     }
   }
 }
