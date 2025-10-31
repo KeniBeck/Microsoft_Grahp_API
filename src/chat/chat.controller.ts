@@ -11,6 +11,7 @@ import {
 import { Response } from 'express';
 import { ChatService } from './chat.service';
 import { CreateChatDto } from './dto/create-chat.dto';
+import { GestionArchivoDto } from './dto/gestion-archivo.dto';
 
 @Controller('chat')
 export class ChatController {
@@ -147,64 +148,39 @@ export class ChatController {
     };
   }
 
-  // INTEGRADOR
-  @Post('integrador')
-  @Header(
-    'Content-Type',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  )
-  async consultarIntegrador(@Body() body: CreateChatDto, @Res() res: Response) {
+  // RECURSOS
+  @Post('recursos')
+  async consultarRecursos(@Body() body: CreateChatDto, @Res() res: Response) {
     if (!body.usuario || !body.pregunta) {
       throw new BadRequestException('Se requieren usuario y pregunta');
     }
-
-    const result = await this.chatService.consultarChatbot(
-      body.usuario,
-      body.pregunta,
-      'integrador',
-    );
-
+    const result = await this.chatService.consultarRecursos(body.usuario, body.pregunta);
     if (!result.success) {
       if (result.error === 'INVALID_QUESTION') {
         throw new UnprocessableEntityException(result.message);
       }
       throw new BadGatewayException(result.message);
     }
-
-    res.setHeader(
-      'Content-Type',
-      result.contentType ||
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.filename}"`,
-    );
+    res.setHeader('Content-Type', result.contentType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.buffer);
   }
 
-  @Post('integrador-frontend')
-  async consultarIntegradorFrontend(@Body() body: CreateChatDto) {
+  @Post('recursos-frontend')
+  async consultarRecursosFrontend(@Body() body: CreateChatDto) {
     if (!body.usuario || !body.pregunta) {
       throw new BadRequestException('Se requieren usuario y pregunta');
     }
-
-    const result = await this.chatService.consultarChatbot(
-      body.usuario,
-      body.pregunta,
-      'integrador',
-    );
-
+    const result = await this.chatService.consultarRecursos(body.usuario, body.pregunta);
     if (!result.success) {
       if (result.error === 'INVALID_QUESTION') {
         throw new UnprocessableEntityException(result.message);
       }
       throw new BadGatewayException(result.message);
     }
-
     return {
       success: true,
-      data: result.buffer!.toString('base64'),
+      data: result.buffer ? result.buffer.toString('base64') : '',
       filename: result.filename,
       contentType: result.contentType,
     };
@@ -337,5 +313,43 @@ export class ChatController {
       filename: result.filename,
       contentType: result.contentType,
     };
+  }
+
+  // GESTIÓN
+  @Post('gestion')
+  async gestionArchivo(@Body() body: GestionArchivoDto, @Res() res: Response) {
+    if (!body.usuario || !body.filename || !body.file_base64) {
+      throw new BadRequestException('Se requieren usuario, filename y file_base64');
+    }
+    const result = await this.chatService.gestionArchivo(body.usuario, body.filename, body.file_base64);
+    if (result.success) {
+      return res.json({ success: true, message: result.message });
+    } else if (result.error === 'VALIDATION_ERRORS') {
+      res.setHeader('Content-Type', result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      return res.send(result.buffer || Buffer.alloc(0));
+    } else {
+      throw new BadGatewayException(result.message);
+    }
+  }
+
+  @Post('gestion-frontend')
+  async gestionArchivoFrontend(@Body() body: GestionArchivoDto) {
+    if (!body.usuario || !body.filename || !body.file_base64) {
+      throw new BadRequestException('Se requieren usuario, filename y file_base64');
+    }
+    const result = await this.chatService.gestionArchivo(body.usuario, body.filename, body.file_base64);
+    if (result.success) {
+      return { success: true, message: result.message };
+    } else if (result.error === 'VALIDATION_ERRORS') {
+      return {
+        success: false,
+        filename: result.filename,
+        contentType: result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        data: result.buffer ? result.buffer.toString('base64') : '',
+      };
+    } else {
+      throw new BadGatewayException(result.message);
+    }
   }
 }
