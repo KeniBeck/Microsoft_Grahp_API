@@ -82,8 +82,6 @@ export class ChatService {
         },
         body: JSON.stringify({ usuario, pregunta }),
       });
-      console.log(usuario, pregunta);
-      console.log(response);
 
       if (!response.ok) {
         return {
