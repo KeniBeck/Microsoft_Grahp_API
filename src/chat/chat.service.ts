@@ -72,4 +72,64 @@ export class ChatService {
       };
     }
   }
+
+  /**
+   * Procesa un archivo Excel en base64 y lo envía al endpoint de gestión.
+   * @param usuario Email del usuario
+   * @param filename Nombre del archivo Excel
+   * @param fileBase64 Archivo Excel en base64
+   * @returns Mensaje de éxito o archivo de errores
+   */
+  async gestionArchivo(usuario: string, filename: string, fileBase64: string) {
+    try {
+      const url = 'https://2lqqjvlg14.execute-api.us-east-2.amazonaws.com/gestion';
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ usuario, filename, file_base64: fileBase64 }),
+      });
+
+      if (response.status === 200) {
+        // Mensaje de éxito en el body
+        const data = await response.json();
+        return {
+          success: true,
+          message: data.message || 'Archivo procesado exitosamente',
+        };
+      } else if (response.status === 400) {
+        // Devuelve un Excel con los errores encontrados
+        let errorFilename = `errores_${Date.now()}.xlsx`;
+        const contentDisposition = response.headers.get('content-disposition');
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="?([^\"]*)"?/);
+          if (filenameMatch && filenameMatch[1]) {
+            errorFilename = filenameMatch[1];
+          }
+        }
+        const buffer = await response.arrayBuffer();
+        const bufferData = Buffer.from(buffer);
+        return {
+          success: false,
+          error: 'VALIDATION_ERRORS',
+          filename: errorFilename,
+          buffer: bufferData,
+          contentType: response.headers.get('content-type') || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        };
+      } else {
+        return {
+          success: false,
+          error: 'API_ERROR',
+          message: `Error inesperado al consultar el servicio de gestión (status: ${response.status})`,
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: 'INTERNAL_ERROR',
+        message: 'Error interno al consultar el servicio de gestión',
+      };
+    }
+  }
 }
