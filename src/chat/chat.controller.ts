@@ -148,64 +148,39 @@ export class ChatController {
     };
   }
 
-  // INTEGRADOR
-  @Post('integrador')
-  @Header(
-    'Content-Type',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  )
-  async consultarIntegrador(@Body() body: CreateChatDto, @Res() res: Response) {
+  // RECURSOS
+  @Post('recursos')
+  async consultarRecursos(@Body() body: CreateChatDto, @Res() res: Response) {
     if (!body.usuario || !body.pregunta) {
       throw new BadRequestException('Se requieren usuario y pregunta');
     }
-
-    const result = await this.chatService.consultarChatbot(
-      body.usuario,
-      body.pregunta,
-      'integrador',
-    );
-
+    const result = await this.chatService.consultarRecursos(body.usuario, body.pregunta);
     if (!result.success) {
       if (result.error === 'INVALID_QUESTION') {
         throw new UnprocessableEntityException(result.message);
       }
       throw new BadGatewayException(result.message);
     }
-
-    res.setHeader(
-      'Content-Type',
-      result.contentType ||
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.filename}"`,
-    );
+    res.setHeader('Content-Type', result.contentType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.buffer);
   }
 
-  @Post('integrador-frontend')
-  async consultarIntegradorFrontend(@Body() body: CreateChatDto) {
+  @Post('recursos-frontend')
+  async consultarRecursosFrontend(@Body() body: CreateChatDto) {
     if (!body.usuario || !body.pregunta) {
       throw new BadRequestException('Se requieren usuario y pregunta');
     }
-
-    const result = await this.chatService.consultarChatbot(
-      body.usuario,
-      body.pregunta,
-      'integrador',
-    );
-
+    const result = await this.chatService.consultarRecursos(body.usuario, body.pregunta);
     if (!result.success) {
       if (result.error === 'INVALID_QUESTION') {
         throw new UnprocessableEntityException(result.message);
       }
       throw new BadGatewayException(result.message);
     }
-
     return {
       success: true,
-      data: result.buffer!.toString('base64'),
+      data: result.buffer ? result.buffer.toString('base64') : '',
       filename: result.filename,
       contentType: result.contentType,
     };
