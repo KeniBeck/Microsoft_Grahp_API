@@ -1,3 +1,55 @@
+
+# 🎓 Mentora - Microsoft Graph API Backend
+
+Backend de la plataforma SaaS **Mentora** para planificación de clases, construido con NestJS + TypeScript.
+
+## ✨ Nueva Refactorización - Chat Modules v2.0 (December 2025)
+
+**🎉 ¡Refactorización completa de los 3 módulos principales completada con éxito!**
+
+### 📚 Documentación de la Refactorización
+
+- **[RESUMEN_FINAL.md](./RESUMEN_FINAL.md)** - 📊 Resumen ejecutivo completo
+- **[REFACTORIZACION_CHAT_MODULES.md](./REFACTORIZACION_CHAT_MODULES.md)** - 🔧 Documentación técnica detallada
+- **[API_USAGE_EXAMPLES.md](./API_USAGE_EXAMPLES.md)** - 💡 Ejemplos de uso con cURL y código
+- **[TESTS_EXAMPLES.md](./TESTS_EXAMPLES.md)** - 🧪 Suite de tests completa
+- **[CHECKLIST_VERIFICACION.md](./CHECKLIST_VERIFICACION.md)** - ✅ Checklist pre-despliegue
+
+### 🚀 Mejoras Implementadas
+
+| Módulo | Mejoras |
+|--------|---------|
+| **Planificador** | ✅ Retry logic (3 intentos), ✅ Backoff exponencial, ✅ Timeout 30s, ✅ Validaciones |
+| **Recursos** | ✅ Whitelist MIME, ✅ Límite 50MB, ✅ Hash SHA-256, ✅ Metadata completa |
+| **Gestión** | ✅ Magic numbers, ✅ Límite 10MB, ✅ Sanitización, ✅ Base64 validation |
+
+### 📦 Archivos Nuevos
+
+```
+src/chat/
+├── constants/chat.constants.ts    ✅ Constantes centralizadas
+├── interfaces/chat.interfaces.ts  ✅ TypeScript interfaces
+└── utils/chat.utils.ts            ✅ 15 utilidades funcionales
+```
+
+### 🎯 Quick Start
+
+```bash
+# Instalar dependencias
+npm install
+
+# Compilar
+npm run build
+
+# Ejecutar en desarrollo
+npm run start:dev
+
+# Ejecutar tests (si implementados)
+npm test
+```
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
