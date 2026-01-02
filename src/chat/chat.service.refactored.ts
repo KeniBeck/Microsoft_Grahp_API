@@ -96,37 +96,14 @@ export class ChatService {
 
         clearTimeout(timeoutId);
 
-        // MANEJAR STATUS 400, 502 Y OTROS ERRORES - EXTRAER MENSAJE DEL BODY
+        // VALIDAR RESPUESTA HTTP
         if (!response.ok) {
-          const errorBody = await response.text();
-          let errorMessage = errorBody;
-
-          // Intentar parsear como JSON para extraer el mensaje real
-          try {
-            const errorJson = JSON.parse(errorBody);
-            // Si tiene campo "respuesta", usarlo
-            if (errorJson.respuesta) {
-              errorMessage = errorJson.respuesta;
-            } else if (errorJson.message) {
-              errorMessage = errorJson.message;
-            }
-          } catch (e) {
-            // Si no es JSON válido, usar el texto tal cual
-            errorMessage = errorBody;
-          }
-
-          this.logger.warn(
-            `${contexto} Lambda retornó status ${response.status} con mensaje: ${errorMessage}`,
+          throw new Error(
+            `Lambda respondió con status ${response.status}: ${response.statusText}`,
           );
-
-          return {
-            success: false,
-            error: 'API_ERROR',
-            message: errorMessage || `Error ${response.status}: Respuesta inesperada del servidor`,
-          };
         }
 
-        // PROCESAR RESPUESTA (STATUS 200)
+        // PROCESAR RESPUESTA
         const filename = this.extractFilename(response, tipo);
         const buffer = await response.arrayBuffer();
         const bufferData = Buffer.from(buffer);
@@ -265,34 +242,11 @@ export class ChatService {
 
       clearTimeout(timeoutId);
 
-      // MANEJAR STATUS 400, 502 Y OTROS ERRORES - EXTRAER MENSAJE DEL BODY
+      // VALIDAR RESPUESTA HTTP
       if (!response.ok) {
-        const errorBody = await response.text();
-        let errorMessage = errorBody;
-
-        // Intentar parsear como JSON para extraer el mensaje real
-        try {
-          const errorJson = JSON.parse(errorBody);
-          // Si tiene campo "respuesta", usarlo
-          if (errorJson.respuesta) {
-            errorMessage = errorJson.respuesta;
-          } else if (errorJson.message) {
-            errorMessage = errorJson.message;
-          }
-        } catch (e) {
-          // Si no es JSON válido, usar el texto tal cual
-          errorMessage = errorBody;
-        }
-
-        this.logger.warn(
-          `${contexto} Lambda retornó status ${response.status} con mensaje: ${errorMessage}`,
+        throw new Error(
+          `Lambda respondió con status ${response.status}: ${response.statusText}`,
         );
-
-        return {
-          success: false,
-          error: 'API_ERROR',
-          message: errorMessage || `Error ${response.status}: Respuesta inesperada del servidor`,
-        };
       }
 
       // VALIDAR TIPO MIME CONTRA WHITELIST
@@ -309,7 +263,7 @@ export class ChatService {
         };
       }
 
-      // PROCESAR RESPUESTA (STATUS 200)
+      // PROCESAR RESPUESTA
       const buffer = await response.arrayBuffer();
       const bufferData = Buffer.from(buffer);
 
@@ -339,28 +293,11 @@ export class ChatService {
         };
       }
 
-      // EXTRAER FILENAME DESDE HEADER Content-Disposition DE LA API
-      // Si no existe, generar uno genérico como fallback
-      let filename: string;
-      const contentDisposition = response.headers.get('content-disposition');
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="?([^"]*)"?/);
-        if (match && match[1]) {
-          filename = ChatUtils.sanitizeFilename(match[1]);
-        } else {
-          // Fallback: generar nombre genérico
-          const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
-          const timestamp = ChatUtils.generateTimestamp();
-          const extension = ChatUtils.getExtensionFromMime(contentType);
-          filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
-        }
-      } else {
-        // Fallback: generar nombre genérico
-        const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
-        const timestamp = ChatUtils.generateTimestamp();
-        const extension = ChatUtils.getExtensionFromMime(contentType);
-        filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
-      }
+      // GENERAR FILENAME MEJORADO
+      const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
+      const timestamp = ChatUtils.generateTimestamp();
+      const extension = ChatUtils.getExtensionFromMime(contentType);
+      const filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
 
       // GENERAR HASH SHA-256 PARA INTEGRIDAD
       const hash = ChatUtils.generateFileHash(bufferData);
@@ -480,104 +417,65 @@ export class ChatService {
 
       // MANEJO DE RESPUESTA EXITOSA (STATUS 200)
       if (response.status === 200) {
-        const contentType = response.headers.get('content-type') || '';
-        
-        // CASO 1: La API retorna un archivo Excel con errores de validación
-        if (contentType.includes('spreadsheet') || contentType.includes('excel')) {
-          const buffer = await response.arrayBuffer();
-          const bufferData = Buffer.from(buffer);
-          
-          // Extraer filename del header Content-Disposition
-          let filenameWithErrors = `errores_${sanitizedFilename}`;
-          const contentDisposition = response.headers.get('content-disposition');
-          if (contentDisposition) {
-            const match = contentDisposition.match(/filename="?([^"]*)"?/);
-            if (match && match[1]) {
-              filenameWithErrors = ChatUtils.sanitizeFilename(match[1]);
-            }
-          }
-          
-          this.logger.log(
-            `${contexto} ⚠️  Archivo procesado con errores de validación - Retornando Excel con detalles - Duración: ${duracion}ms`,
-          );
-
-          return {
-            success: true,
-            message: 'Se encontraron errores de validación. Descargue el archivo Excel para ver los detalles.',
-            buffer: bufferData,
-            contentType,
-            filename: filenameWithErrors,
-            metadata: {
-              usuario,
-              archivoOriginal: sanitizedFilename,
-              tamañoOriginal: validacion.size!,
-              hash,
-              timestamp: new Date(),
-            },
-          };
-        }
-        
-        // CASO 2: La API retorna un mensaje JSON de éxito
-        const bodyText = await response.text();
-        let responseMessage = bodyText;
-        
-        try {
-          const data = JSON.parse(bodyText);
-          // Extraer el mensaje del body (priorizar "respuesta" sobre "message")
-          if (data.respuesta) {
-            responseMessage = data.respuesta;
-          } else if (data.message) {
-            responseMessage = data.message;
-          }
-        } catch (e) {
-          // Si no es JSON válido, usar el texto tal cual
-          responseMessage = bodyText;
-        }
-        
+        const data = await response.json();
         this.logger.log(
           `${contexto} ✅ Archivo procesado exitosamente - Duración: ${duracion}ms`,
         );
 
         return {
           success: true,
-          message: responseMessage || 'Archivo procesado exitosamente',
+          message: data.message || 'Archivo procesado exitosamente',
           metadata: {
             usuario,
             archivoOriginal: sanitizedFilename,
-            tamañoOriginal: validacion.size!,
+            tamañoOriginal: buffer.length,
             hash,
             timestamp: new Date(),
           },
         };
       }
 
-      // MANEJO DE ERRORES (STATUS 400, 502, ETC.)
-      // Extraer mensaje del body (puede ser JSON o texto)
-      const errorBody = await response.text();
-      let errorMessage = errorBody;
+      // MANEJO DE ERRORES DE VALIDACIÓN (STATUS 400)
+      // Lambda devuelve un Excel con los errores encontrados
+      if (response.status === 400) {
+        let errorFilename = `errores_${ChatUtils.generateTimestamp()}.xlsx`;
 
-      // Intentar parsear como JSON para extraer el mensaje real
-      try {
-        const errorJson = JSON.parse(errorBody);
-        // Si tiene campo "respuesta", usarlo
-        if (errorJson.respuesta) {
-          errorMessage = errorJson.respuesta;
-        } else if (errorJson.message) {
-          errorMessage = errorJson.message;
+        // Extraer filename del Content-Disposition si existe
+        const contentDisposition = response.headers.get('content-disposition');
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]*)"?/);
+          if (match && match[1]) {
+            errorFilename = ChatUtils.sanitizeFilename(match[1]);
+          }
         }
-      } catch (e) {
-        // Si no es JSON válido, usar el texto tal cual
-        errorMessage = errorBody;
+
+        const errorBuffer = await response.arrayBuffer();
+        const errorBufferData = Buffer.from(errorBuffer);
+        const errorTamaño = ChatUtils.formatFileSize(errorBufferData.length);
+
+        this.logger.warn(
+          `${contexto} ⚠️  Errores de validación encontrados - Archivo de errores: ${errorFilename} - Tamaño: ${errorTamaño} - Duración: ${duracion}ms`,
+        );
+
+        return {
+          success: false,
+          error: 'VALIDATION_ERRORS',
+          filename: errorFilename,
+          buffer: errorBufferData,
+          contentType:
+            response.headers.get('content-type') ||
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        };
       }
 
-      this.logger.warn(
-        `${contexto} ⚠️  Lambda retornó status ${response.status} con mensaje: ${errorMessage} - Duración: ${duracion}ms`,
+      // OTROS ERRORES HTTP
+      this.logger.error(
+        `${contexto} ❌ Error inesperado del Lambda (status ${response.status}) - Duración: ${duracion}ms`,
       );
-
       return {
         success: false,
-        error: response.status === 400 ? 'VALIDATION_ERRORS' : 'API_ERROR',
-        message: errorMessage || `Error ${response.status}: Respuesta inesperada del servidor`,
+        error: 'API_ERROR',
+        message: `Error inesperado al consultar el servicio de gestión (status: ${response.status})`,
       };
     } catch (error) {
       const duracion = Date.now() - startTime;
