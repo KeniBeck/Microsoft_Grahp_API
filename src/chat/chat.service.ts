@@ -339,11 +339,28 @@ export class ChatService {
         };
       }
 
-      // GENERAR FILENAME MEJORADO
-      const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
-      const timestamp = ChatUtils.generateTimestamp();
-      const extension = ChatUtils.getExtensionFromMime(contentType);
-      const filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
+      // EXTRAER FILENAME DESDE HEADER Content-Disposition DE LA API
+      // Si no existe, generar uno genérico como fallback
+      let filename: string;
+      const contentDisposition = response.headers.get('content-disposition');
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]*)"?/);
+        if (match && match[1]) {
+          filename = ChatUtils.sanitizeFilename(match[1]);
+        } else {
+          // Fallback: generar nombre genérico
+          const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
+          const timestamp = ChatUtils.generateTimestamp();
+          const extension = ChatUtils.getExtensionFromMime(contentType);
+          filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
+        }
+      } else {
+        // Fallback: generar nombre genérico
+        const tipoArchivo = ChatUtils.getTipoArchivoFromMime(contentType);
+        const timestamp = ChatUtils.generateTimestamp();
+        const extension = ChatUtils.getExtensionFromMime(contentType);
+        filename = `recurso_${tipoArchivo}_${timestamp}.${extension}`;
+      }
 
       // GENERAR HASH SHA-256 PARA INTEGRIDAD
       const hash = ChatUtils.generateFileHash(bufferData);
@@ -463,18 +480,71 @@ export class ChatService {
 
       // MANEJO DE RESPUESTA EXITOSA (STATUS 200)
       if (response.status === 200) {
-        const data = await response.json();
+        const contentType = response.headers.get('content-type') || '';
+        
+        // CASO 1: La API retorna un archivo Excel con errores de validación
+        if (contentType.includes('spreadsheet') || contentType.includes('excel')) {
+          const buffer = await response.arrayBuffer();
+          const bufferData = Buffer.from(buffer);
+          
+          // Extraer filename del header Content-Disposition
+          let filenameWithErrors = `errores_${sanitizedFilename}`;
+          const contentDisposition = response.headers.get('content-disposition');
+          if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^"]*)"?/);
+            if (match && match[1]) {
+              filenameWithErrors = ChatUtils.sanitizeFilename(match[1]);
+            }
+          }
+          
+          this.logger.log(
+            `${contexto} ⚠️  Archivo procesado con errores de validación - Retornando Excel con detalles - Duración: ${duracion}ms`,
+          );
+
+          return {
+            success: true,
+            message: 'Se encontraron errores de validación. Descargue el archivo Excel para ver los detalles.',
+            buffer: bufferData,
+            contentType,
+            filename: filenameWithErrors,
+            metadata: {
+              usuario,
+              archivoOriginal: sanitizedFilename,
+              tamañoOriginal: validacion.size!,
+              hash,
+              timestamp: new Date(),
+            },
+          };
+        }
+        
+        // CASO 2: La API retorna un mensaje JSON de éxito
+        const bodyText = await response.text();
+        let responseMessage = bodyText;
+        
+        try {
+          const data = JSON.parse(bodyText);
+          // Extraer el mensaje del body (priorizar "respuesta" sobre "message")
+          if (data.respuesta) {
+            responseMessage = data.respuesta;
+          } else if (data.message) {
+            responseMessage = data.message;
+          }
+        } catch (e) {
+          // Si no es JSON válido, usar el texto tal cual
+          responseMessage = bodyText;
+        }
+        
         this.logger.log(
           `${contexto} ✅ Archivo procesado exitosamente - Duración: ${duracion}ms`,
         );
 
         return {
           success: true,
-          message: data.message || 'Archivo procesado exitosamente',
+          message: responseMessage || 'Archivo procesado exitosamente',
           metadata: {
             usuario,
             archivoOriginal: sanitizedFilename,
-            tamañoOriginal: buffer.length,
+            tamañoOriginal: validacion.size!,
             hash,
             timestamp: new Date(),
           },
