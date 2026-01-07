@@ -322,15 +322,25 @@ export class ChatController {
       throw new BadRequestException('Se requieren usuario, filename y file_base64');
     }
     const result = await this.chatService.gestionArchivo(body.usuario, body.filename, body.file_base64);
+    
+    // CASO 1: Éxito (puede incluir buffer si hay Excel con errores de validación)
     if (result.success) {
+      // Si tiene buffer, descargar el Excel con errores
+      if (result.buffer) {
+        res.setHeader('Content-Type', result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        return res.send(result.buffer);
+      }
+      // Si no tiene buffer, retornar mensaje JSON de éxito
       return res.json({ success: true, message: result.message });
-    } else if (result.error === 'VALIDATION_ERRORS') {
-      res.setHeader('Content-Type', result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-      return res.send(result.buffer || Buffer.alloc(0));
-    } else {
-      throw new BadGatewayException(result.message);
     }
+    
+    // CASO 2: Error (status 400, 502, etc.) - Retornar el mensaje del error
+    return res.status(400).json({
+      success: false,
+      error: result.error,
+      message: result.message,
+    });
   }
 
   @Post('gestion-frontend')
@@ -339,17 +349,28 @@ export class ChatController {
       throw new BadRequestException('Se requieren usuario, filename y file_base64');
     }
     const result = await this.chatService.gestionArchivo(body.usuario, body.filename, body.file_base64);
+    
+    // CASO 1: Éxito (puede incluir buffer si hay Excel con errores de validación)
     if (result.success) {
+      // Si tiene buffer, es un Excel con errores de validación
+      if (result.buffer) {
+        return {
+          success: true,
+          message: result.message,
+          filename: result.filename,
+          contentType: result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          data: result.buffer.toString('base64'),
+        };
+      }
+      // Si no tiene buffer, es un mensaje de éxito simple
       return { success: true, message: result.message };
-    } else if (result.error === 'VALIDATION_ERRORS') {
-      return {
-        success: false,
-        filename: result.filename,
-        contentType: result.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        data: result.buffer ? result.buffer.toString('base64') : '',
-      };
-    } else {
-      throw new BadGatewayException(result.message);
     }
+    
+    // CASO 2: Error (status 400, 502, etc.) - Retornar el mensaje del error
+    return {
+      success: false,
+      error: result.error,
+      message: result.message,
+    };
   }
 }
